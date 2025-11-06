@@ -1,0 +1,247 @@
+import sqlite3
+import pandas as pd
+import os
+import subprocess
+
+
+# CREAR CONEXIÓN Y TABLAS
+def crear_tablas():
+    conn = sqlite3.connect("sistema_afis.db")
+    cursor = conn.cursor()
+
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS categorias(
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            nombre TEXT NOT NULL
+        )
+    """)
+
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS afis(
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            nombre TEXT NOT NULL,
+            categoria_id INTEGER,
+            FOREIGN KEY (categoria_id) REFERENCES categorias (id)
+        )
+    """)
+
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS usuarios(
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            nombre TEXT NOT NULL,
+            afi_id INTEGER,
+            FOREIGN KEY (afi_id) REFERENCES afis (id)
+        )
+    """)
+
+    conn.commit()
+    conn.close()
+
+# INSERTAR DATOS DE EJEMPLO
+def insertar_datos_ejemplo():
+    conn = sqlite3.connect("sistema_afis.db")
+    cursor = conn.cursor()
+
+    cursor.execute("SELECT COUNT(*) FROM categorias")
+    if cursor.fetchone()[0] > 0:
+        print(" Los datos de ejemplo ya existen.")
+        conn.close()
+        return
+    
+    "Categorias 5"
+    categorias = [
+        ("Salud",), ("Deporte",), ("Música",),
+        ("Danza",), ("Tecnología",)
+    ]
+    cursor.executemany("INSERT INTO categorias (nombre) VALUES (?)", categorias)
+
+    "Afis 10"
+    afis = [
+        ("Conferencia de nutrición", 1),
+        ("Torneo interfacultades", 2),
+        ("Festival de bandas", 3),
+        ("Clases de danza contemporánea", 4),
+        ("Feria tecnológica", 5),
+        ("Carrera 5K", 2),
+        ("Concierto universitario", 3),
+        ("Taller de inteligencia artificial", 5),
+        ("Exposición de arte y música", 3),
+        ("Foro sobre salud mental", 1)
+    ]
+    cursor.executemany("INSERT INTO afis (nombre, categoria_id) VALUES (?, ?)", afis)
+    
+    "Usuarios 5"
+    usuarios = [
+        ("Ana López", 1),
+        ("Carlos Pérez", 2),
+        ("María García", 3),
+        ("Luis Hernández", 4),
+        ("Elena Torres", 5)
+    ]
+    cursor.executemany("INSERT INTO usuarios (nombre, afi_id) VALUES (?, ?)", usuarios)
+
+    conn.commit()
+    conn.close()
+    print(" Datos de ejemplo insertados correctamente.")
+
+# REGISTRAR NUEVO USUARIO
+def registrar_usuario():
+    conn = sqlite3.connect("sistema_afis.db")
+    cursor = conn.cursor()
+
+    nombre = input("Nombre del nuevo usuario: ")
+
+    cursor.execute("SELECT id, nombre FROM afis")
+    afis = cursor.fetchall()
+    print("\n--- AFIs disponibles ---")
+    for afi in afis:
+        print(f"{afi[0]}. {afi[1]}")
+
+    afi_id = int(input("Selecciona el ID del AFI al que se registrará: "))
+
+    cursor.execute("INSERT INTO usuarios (nombre, afi_id) VALUES (?, ?)", (nombre, afi_id))
+    conn.commit()
+    conn.close()
+
+    print("Usuario registrado correctamente.")
+
+# MODIFICAR USUARIO
+def modificar_usuario():
+    conn = sqlite3.connect("sistema_afis.db")
+    cursor = conn.cursor()
+
+    cursor.execute("SELECT * FROM usuarios")
+    usuarios = cursor.fetchall()
+    print("\n--- Usuarios ---")
+    for u in usuarios:
+        print(f"{u[0]}. {u[1]} (AFI {u[2]})")
+
+    usuario_id = int(input("ID del usuario a modificar: "))
+    nuevo_nombre = input("Nuevo nombre: ")
+
+    cursor.execute("UPDATE usuarios SET nombre = ? WHERE id = ?", (nuevo_nombre, usuario_id))
+    conn.commit()
+    conn.close()
+
+    print("Usuario modificado correctamente.")
+
+# ELIMINAR USUARIO
+def eliminar_usuario():
+    conn = sqlite3.connect("sistema_afis.db")
+    cursor = conn.cursor()
+
+    cursor.execute("SELECT * FROM usuarios")
+    usuarios = cursor.fetchall()
+    print("\n--- Usuarios ---")
+    for u in usuarios:
+        print(f"{u[0]}. {u[1]}")
+
+    usuario_id = int(input("ID del usuario a eliminar: "))
+
+    cursor.execute("DELETE FROM usuarios WHERE id = ?", (usuario_id,))
+    conn.commit()
+    conn.close()
+
+    print("Usuario eliminado correctamente.")
+
+# MOSTRAR DATOS
+def mostrar_datos():
+    conn = sqlite3.connect("sistema_afis.db")
+    cursor = conn.cursor()
+
+    print("\n--- Usuarios ---")
+    query = """
+        SELECT u.id, u.nombre, a.nombre AS afi, c.nombre AS categoria
+        FROM usuarios u
+        JOIN afis a ON u.afi_id = a.id
+        JOIN categorias c ON a.categoria_id = c.id
+    """
+    for row in cursor.execute(query):
+        print(row)
+
+    conn.close()
+
+# EXPORTAR A EXCEL 
+def exportar_a_excel():
+    try:
+        conn = sqlite3.connect("sistema_afis.db")
+
+        # Usuarios con nombre de AFI y categoría
+        usuarios_detallado = pd.read_sql_query("""
+            SELECT 
+                u.id AS ID_Usuario,
+                u.nombre AS Nombre_Usuario,
+                a.nombre AS Nombre_AFI,
+                c.nombre AS Categoria
+            FROM usuarios u
+            JOIN afis a ON u.afi_id = a.id
+            JOIN categorias c ON a.categoria_id = c.id
+        """, conn)
+
+        # AFIs con su categoría
+        afis_detallado = pd.read_sql_query("""
+            SELECT 
+                a.id AS ID_AFI,
+                a.nombre AS Nombre_AFI,
+                c.nombre AS Categoria
+            FROM afis a
+            JOIN categorias c ON a.categoria_id = c.id
+        """, conn)
+
+        categorias = pd.read_sql_query("SELECT id AS ID, nombre AS Categoria FROM categorias", conn)
+
+        archivo_excel = os.path.abspath("Datos_AFIS.xlsx")
+
+        with pd.ExcelWriter(archivo_excel, engine="openpyxl") as writer:
+            usuarios_detallado.to_excel(writer, sheet_name="Usuarios", index=False)
+            afis_detallado.to_excel(writer, sheet_name="AFIS", index=False)
+            categorias.to_excel(writer, sheet_name="Categorias", index=False)
+
+        conn.close()
+        print(f"\nDatos exportados correctamente a '{archivo_excel}'")
+
+        if os.name == "nt": 
+            os.startfile(archivo_excel)
+        else:
+            subprocess.call(["open" if os.uname().sysname == "Darwin" else "xdg-open", archivo_excel])
+
+        print("Abriendo archivo Excel...")
+
+    except Exception as e:
+        print(f"Error al exportar o abrir el archivo: {e}")
+
+# MENU PRINCIPAL
+def menu():
+    crear_tablas()
+    while True:
+        print("\n=== MENU AFIS ===")
+        print("1. Insertar datos de ejemplo")
+        print("2. Registrar nuevo usuario")
+        print("3. Modificar usuario")
+        print("4. Eliminar usuario")
+        print("5. Mostrar datos")
+        print("6. Exportar a Excel")
+        print("7. Salir")
+
+        opcion = input("Selecciona una opción: ")
+
+        if opcion == "1":
+            insertar_datos_ejemplo()
+        elif opcion == "2":
+            registrar_usuario()
+        elif opcion == "3":
+            modificar_usuario()
+        elif opcion == "4":
+            eliminar_usuario()
+        elif opcion == "5":
+            mostrar_datos()
+        elif opcion == "6":
+            exportar_a_excel()
+        elif opcion == "7":
+            print("Saliendo del sistema...")
+            break
+        else:
+            print("Opción inválida. Intenta de nuevo.")
+
+if __name__ == "__main__":
+    menu()
